@@ -6,7 +6,6 @@ const font = '15px "Helvetica Neue", Helvetica, Arial, sans-serif'
 const lineHeight = 22
 const cardPadding = 16
 const gap = 12
-const minColWidth = 160
 const maxColWidth = 400
 
 // --- prepare all texts upfront ---
@@ -34,10 +33,11 @@ let layoutOffsetLeft = 0
 let lastLayoutWidth = -1
 
 function recomputeLayout(windowWidth: number) {
-  const contentWidth = Math.min(windowWidth - gap * 2, maxColWidth * 6)
-  const colCount = Math.max(1, Math.floor((contentWidth + gap) / (minColWidth + gap)))
-  const colWidth = (contentWidth - (colCount - 1) * gap) / colCount
+  const minColWidth = 100 + windowWidth * 0.1
+  const colCount = Math.max(2, Math.floor((windowWidth + gap) / (minColWidth + gap)))
+  const colWidth = Math.min(maxColWidth, (windowWidth - (colCount + 1) * gap) / colCount)
   const textWidth = colWidth - cardPadding * 2
+  const contentWidth = colCount * colWidth + (colCount - 1) * gap
   const offsetLeft = (windowWidth - contentWidth) / 2
 
   const colHeights = new Float64Array(colCount)
@@ -98,7 +98,6 @@ function render() {
   const viewBottom = scrollTop + windowHeight + 200
 
   container.style.height = `${layoutMaxColHeight}px`
-  container.style.marginLeft = `${layoutOffsetLeft}px`
 
   for (let i = 0; i < thoughts.length; i++) {
     const y = cardY[i]!
