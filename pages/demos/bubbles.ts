@@ -19,8 +19,13 @@ const PADDING_V = 8
 const BUBBLE_MAX_RATIO = 0.8
 
 const messages: { text: string, sent: boolean }[] = [
-  { text: 'The performance improvements are greaaaaaaaaaaaaaaaaaaaatttttttt.', sent: false },
-  { text: '성능 최적화가 रिव्यू करते ह정말 많이되었더라고요. byyyyyyyeeeeeeeeeeeeeeeeeeee 🎉 👍', sent: true },
+  { text: 'Yo did you see the new Pretext library?', sent: false },
+  { text: 'yeah! It measures text without the DOM. Pure JavaScript arithmetic', sent: true },
+  { text: "That shrinkwrap demo is wild it finds the exact minimum width for multiline text. CSS can't do that.", sent: false },
+  { text: '성능 최적화가 정말 많이 되었더라고요 🎉', sent: true },
+  { text: 'Oh wow it handles CJK and emoji too??', sent: false },
+  { text: 'everything. Mixed bidi, grapheme clusters, whatever you want. Try resizing', sent: true },
+  { text: "the best part: zero layout reflow. You could shrinkwrap 10,000 bubbles and the browser wouldn't even blink", sent: true },
 ]
 
 const domCache = {
