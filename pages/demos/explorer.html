@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pretext Explorer — How Text Layout Works</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    color-scheme: light;
+    --page: #f5f1ea;
+    --panel: #fffdf8;
+    --ink: #201b18;
+    --muted: #6d645d;
+    --rule: #d8cec3;
+    --accent: #955f3b;
+    --accent2: #3b6e95;
+    --green: #3a7d44;
+    --red: #c44;
+    --seg-text: #e8d5c4;
+    --seg-space: #d4e5d4;
+    --seg-glue: #d4d4e8;
+    --seg-shy: #e8d4e8;
+    --seg-zwb: #e8e8d4;
+    --seg-hard: #f0c4c4;
+    --seg-tab: #c4e0f0;
+    --seg-pspace: #c4f0e0;
+  }
+  body {
+    margin: 0;
+    background: linear-gradient(180deg, #fbf7f0 0%, var(--page) 100%);
+    color: var(--ink);
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .page {
+    width: min(760px, calc(100vw - 32px));
+    margin: 0 auto;
+    padding: 48px 0 80px;
+  }
+  .eyebrow {
+    margin: 0 0 8px;
+    font: 12px/1.2 "SF Mono", ui-monospace, monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    margin: 0 0 16px;
+    font: 700 38px/1.08 Georgia, "Times New Roman", serif;
+  }
+  .subtitle {
+    margin: 0 0 40px;
+    max-width: 58ch;
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  h2 {
+    margin: 56px 0 12px;
+    font: 700 26px/1.15 Georgia, "Times New Roman", serif;
+    color: var(--ink);
+  }
+  h3 {
+    margin: 32px 0 8px;
+    font: 600 18px/1.3 "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  p { margin: 0 0 16px; max-width: 62ch; }
+  code {
+    font: 14px/1.4 "SF Mono", ui-monospace, monospace;
+    background: rgba(0,0,0,0.05);
+    padding: 2px 5px;
+    border-radius: 3px;
+  }
+  pre {
+    margin: 0 0 16px;
+    padding: 16px;
+    background: #2b2520;
+    color: #e8dfd8;
+    border-radius: 10px;
+    overflow-x: auto;
+    font: 13px/1.5 "SF Mono", ui-monospace, monospace;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  /* Demo panels */
+  .demo {
+    margin: 20px 0 28px;
+    padding: 20px;
+    border: 1px solid var(--rule);
+    border-radius: 16px;
+    background: var(--panel);
+    box-shadow: 0 12px 32px rgb(54 40 23 / 0.06);
+  }
+  .demo-label {
+    display: block;
+    margin: 0 0 12px;
+    font: 11px/1.2 "SF Mono", ui-monospace, monospace;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .demo textarea {
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.5 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    resize: vertical;
+  }
+  .demo textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  /* Slider controls */
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 0;
+  }
+  .slider-row label {
+    font: 13px/1 "SF Mono", ui-monospace, monospace;
+    color: var(--muted);
+    white-space: nowrap;
+    min-width: 70px;
+  }
+  .slider-row input[type="range"] { flex: 1; }
+  .slider-row .val {
+    font: 13px/1 "SF Mono", ui-monospace, monospace;
+    color: var(--ink);
+    min-width: 54px;
+    text-align: right;
+  }
+
+  /* Segment chips */
+  .seg-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin: 12px 0;
+    min-height: 32px;
+  }
+  .seg {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 7px;
+    border-radius: 5px;
+    font: 13px/1.3 "SF Mono", ui-monospace, monospace;
+    border: 1px solid rgba(0,0,0,0.08);
+    position: relative;
+  }
+  .seg-kind {
+    position: absolute;
+    top: -8px;
+    left: 4px;
+    font-size: 8px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--panel);
+    padding: 0 2px;
+    line-height: 1;
+  }
+  .seg--text { background: var(--seg-text); }
+  .seg--space { background: var(--seg-space); }
+  .seg--glue { background: var(--seg-glue); }
+  .seg--soft-hyphen { background: var(--seg-shy); }
+  .seg--zero-width-break { background: var(--seg-zwb); }
+  .seg--hard-break { background: var(--seg-hard); }
+  .seg--tab { background: var(--seg-tab); }
+  .seg--preserved-space { background: var(--seg-pspace); }
+
+  /* Width arrays */
+  .width-bars {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin: 12px 0;
+    align-items: flex-end;
+  }
+  .width-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .width-bar-fill {
+    border-radius: 3px 3px 0 0;
+    min-width: 12px;
+    transition: height 200ms ease;
+  }
+  .width-bar-label {
+    font: 9px/1 "SF Mono", ui-monospace, monospace;
+    color: var(--muted);
+    max-width: 40px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+  }
+
+  /* Line rendering */
+  .line-render {
+    position: relative;
+    margin: 12px 0;
+    border-left: 2px solid var(--accent);
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0.02) 0px,
+      rgba(0,0,0,0.02) 1px,
+      transparent 1px,
+      transparent var(--lh, 24px)
+    );
+    overflow: hidden;
+    transition: width 200ms ease;
+  }
+  .line-render-line {
+    padding: 0 8px;
+    white-space: pre;
+    overflow: hidden;
+  }
+  .line-render-width-marker {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--accent);
+    opacity: 0.3;
+  }
+
+  /* Stats row */
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 12px 0;
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .stat-value {
+    font: 600 20px/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--accent);
+  }
+  .stat-label {
+    font: 11px/1 "SF Mono", ui-monospace, monospace;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* Comparison layout */
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 12px 0;
+  }
+  .compare-panel {
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid var(--rule);
+  }
+  .compare-panel h4 {
+    margin: 0 0 8px;
+    font: 600 14px/1.2 "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  .compare-panel--good { border-color: var(--green); background: #f0f8f0; }
+  .compare-panel--bad { border-color: var(--red); background: #faf0f0; }
+
+  /* Shrink animation */
+  .shrink-vis {
+    position: relative;
+    margin: 12px 0;
+    height: 180px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    background: var(--panel);
+    overflow: hidden;
+  }
+  .shrink-text-box {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    border: 2px solid var(--accent);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font: 15px/22px "Helvetica Neue", Helvetica, Arial, sans-serif;
+    transition: width 120ms ease;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .shrink-log {
+    position: absolute;
+    bottom: 8px;
+    left: 12px;
+    right: 12px;
+    font: 11px/1.4 "SF Mono", ui-monospace, monospace;
+    color: var(--muted);
+    max-height: 80px;
+    overflow-y: auto;
+  }
+
+  /* Performance bar chart */
+  .perf-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    margin: 16px 0;
+    height: 160px;
+  }
+  .perf-bar {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+  }
+  .perf-bar-fill {
+    width: 100%;
+    max-width: 80px;
+    border-radius: 6px 6px 0 0;
+    transition: height 400ms ease;
+  }
+  .perf-bar-val {
+    margin-top: 6px;
+    font: 600 14px/1 "SF Mono", ui-monospace, monospace;
+  }
+  .perf-bar-label {
+    margin-top: 4px;
+    font: 11px/1.2 "SF Mono", ui-monospace, monospace;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  /* Kinsoku highlight */
+  .kinsoku-attached {
+    background: rgba(149, 95, 59, 0.15);
+    border-radius: 3px;
+    padding: 1px 2px;
+  }
+
+  /* Table of contents */
+  .toc {
+    margin: 0 0 40px;
+    padding: 20px 24px;
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    background: var(--panel);
+  }
+  .toc ol {
+    margin: 8px 0 0;
+    padding-left: 24px;
+    list-style: decimal;
+  }
+  .toc li {
+    margin: 4px 0;
+    line-height: 1.5;
+  }
+  .toc a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .toc a:hover { text-decoration: underline; }
+
+  /* Button */
+  .btn {
+    display: inline-block;
+    padding: 8px 16px;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--ink);
+    font: 13px/1 "SF Mono", ui-monospace, monospace;
+    cursor: pointer;
+    transition: background 100ms;
+  }
+  .btn:hover { background: var(--page); }
+  .btn--accent { border-color: var(--accent); color: var(--accent); }
+
+  /* Callout */
+  .callout {
+    margin: 16px 0;
+    padding: 14px 18px;
+    border-left: 3px solid var(--accent);
+    background: rgba(149, 95, 59, 0.06);
+    border-radius: 0 8px 8px 0;
+  }
+  .callout p { margin: 0; }
+
+  /* Pipeline arrow */
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0;
+  }
+  .pipeline-step {
+    padding: 8px 14px;
+    border-radius: 8px;
+    font: 600 13px/1.2 "SF Mono", ui-monospace, monospace;
+    white-space: nowrap;
+  }
+  .pipeline-arrow {
+    font-size: 18px;
+    color: var(--muted);
+  }
+  .pipeline-step--analysis { background: #e8d5c4; color: #6b3a1a; }
+  .pipeline-step--measure { background: #d4e5d4; color: #1a4a2a; }
+  .pipeline-step--prepared { background: #d4d4e8; color: #2a2a5a; }
+  .pipeline-step--layout { background: #e8e8d4; color: #4a4a1a; }
+
+  @media (max-width: 640px) {
+    .page { width: min(100vw - 20px, 760px); padding-top: 28px; }
+    h1 { font-size: 28px; }
+    .compare-grid { grid-template-columns: 1fr; }
+    .perf-bars { gap: 12px; }
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+    <p class="eyebrow">Pretext Explorer</p>
+    <h1>How Text Layout Actually Works</h1>
+    <p class="subtitle">
+      An interactive deep dive into Pretext's algorithms for measuring and
+      laying out multilingual text without touching the DOM. Every demo on
+      this page is live — drag sliders, edit text, and watch the engine work.
+    </p>
+
+    <nav class="toc">
+      <strong>Contents</strong>
+      <ol>
+        <li><a href="#problem">The Problem: DOM Measurement Cost</a></li>
+        <li><a href="#pipeline">The Two-Phase Pipeline</a></li>
+        <li><a href="#analysis">Text Analysis: Segmentation &amp; Break Kinds</a></li>
+        <li><a href="#measurement">Measurement: Canvas as Ground Truth</a></li>
+        <li><a href="#linebreak">Line Breaking: The Core Algorithm</a></li>
+        <li><a href="#cjk">CJK &amp; Kinsoku: Punctuation Attachment</a></li>
+        <li><a href="#softhyphen">Soft Hyphens: Discretionary Breaks</a></li>
+        <li><a href="#shrinkwrap">Shrink Wrap: Finding the Tightest Fit</a></li>
+        <li><a href="#variable">Variable Width: Text Around Obstacles</a></li>
+        <li><a href="#performance">Performance: prepare() vs layout()</a></li>
+      </ol>
+    </nav>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <h2 id="problem">1. The Problem: DOM Measurement Cost</h2>
+    <p>
+      Browsers calculate text height through layout reflow. When your UI has
+      hundreds of text blocks and you need each one's height, you face a choice:
+      measure them all through the DOM (expensive), or guess (inaccurate).
+    </p>
+    <p>
+      The cost gets worse when reads and writes interleave. Each
+      <code>getBoundingClientRect()</code> after a style mutation forces the
+      browser to recalculate the entire document layout.
+    </p>
+
+    <div class="demo" id="demo-problem">
+      <span class="demo-label">Live comparison: DOM vs Pretext</span>
+      <p style="margin:0 0 8px; font-size:14px; color:var(--muted)">
+        Click "Run" to measure 200 text blocks both ways and see the timing difference.
+      </p>
+      <button class="btn btn--accent" id="problem-run">Run comparison</button>
+      <div class="perf-bars" id="problem-bars">
+        <div class="perf-bar">
+          <div class="perf-bar-fill" id="problem-bar-dom" style="height:0; background:var(--red)"></div>
+          <span class="perf-bar-val" id="problem-val-dom">—</span>
+          <span class="perf-bar-label">DOM interleaved</span>
+        </div>
+        <div class="perf-bar">
+          <div class="perf-bar-fill" id="problem-bar-batch" style="height:0; background:#d4a030"></div>
+          <span class="perf-bar-val" id="problem-val-batch">—</span>
+          <span class="perf-bar-label">DOM batched</span>
+        </div>
+        <div class="perf-bar">
+          <div class="perf-bar-fill" id="problem-bar-prep" style="height:0; background:var(--accent2)"></div>
+          <span class="perf-bar-val" id="problem-val-prep">—</span>
+          <span class="perf-bar-label">prepare()</span>
+        </div>
+        <div class="perf-bar">
+          <div class="perf-bar-fill" id="problem-bar-lay" style="height:0; background:var(--green)"></div>
+          <span class="perf-bar-val" id="problem-val-lay">—</span>
+          <span class="perf-bar-label">layout() ×10</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <h2 id="pipeline">2. The Two-Phase Pipeline</h2>
+    <p>
+      Pretext splits text layout into two phases. <code>prepare()</code> does
+      the expensive one-time work: normalize whitespace, segment the text,
+      apply script-specific rules, and measure each segment using
+      <code>canvas.measureText()</code>. The result is an opaque handle
+      containing cached widths.
+    </p>
+    <p>
+      <code>layout()</code> then uses that handle with pure arithmetic — no
+      DOM reads, no canvas calls, no string operations. It simply walks the
+      cached widths to count lines and compute height. This is the resize
+      hot path: call it on every frame if you need to.
+    </p>
+
+    <div class="pipeline">
+      <span class="pipeline-step pipeline-step--analysis">analyze</span>
+      <span class="pipeline-arrow">→</span>
+      <span class="pipeline-step pipeline-step--measure">measure</span>
+      <span class="pipeline-arrow">→</span>
+      <span class="pipeline-step pipeline-step--prepared">prepared state</span>
+      <span class="pipeline-arrow">→</span>
+      <span class="pipeline-step pipeline-step--layout">layout()</span>
+    </div>
+
+    <pre><code>import { prepare, layout } from '@chenglou/pretext'
+
+// One-time: segment + measure (~19ms for 500 texts)
+const prepared = prepare(text, '16px Inter')
+
+// Hot path: pure arithmetic (~0.09ms for 500 texts)
+const { height, lineCount } = layout(prepared, maxWidth, lineHeight)</code></pre>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <h2 id="analysis">3. Text Analysis: Segmentation &amp; Break Kinds</h2>
+    <p>
+      The analysis phase turns raw text into a stream of semantically meaningful
+      segments. Each segment has a <em>break kind</em> that tells the line
+      breaker how to handle it. Pretext distinguishes eight break kinds:
+    </p>
+    <div style="display:flex; flex-wrap:wrap; gap:6px; margin:12px 0">
+      <span class="seg seg--text" style="font-size:12px">text</span>
+      <span class="seg seg--space" style="font-size:12px">space</span>
+      <span class="seg seg--preserved-space" style="font-size:12px">preserved-space</span>
+      <span class="seg seg--tab" style="font-size:12px">tab</span>
+      <span class="seg seg--glue" style="font-size:12px">glue (NBSP)</span>
+      <span class="seg seg--zero-width-break" style="font-size:12px">zero-width-break</span>
+      <span class="seg seg--soft-hyphen" style="font-size:12px">soft-hyphen</span>
+      <span class="seg seg--hard-break" style="font-size:12px">hard-break</span>
+    </div>
+    <p>
+      Type or edit the text below and watch how Pretext segments it. Notice
+      how punctuation gets merged into adjacent words, and how special
+      Unicode characters become explicit engine concepts.
+    </p>
+
+    <div class="demo" id="demo-analysis">
+      <span class="demo-label">Interactive segmenter</span>
+      <textarea id="analysis-input" rows="2">Hello, world! The quick fox trans­atlantic 🚀 and a non\u00A0breaking space.</textarea>
+      <div class="seg-row" id="analysis-segments"></div>
+      <div class="stats" id="analysis-stats"></div>
+    </div>
+
+    <div class="callout">
+      <p>
+        <strong>Key insight:</strong> Most correctness fixes in Pretext live in
+        analysis, not in the line breaker. Script-specific rules — Arabic
+        punctuation glue, CJK kinsoku, Myanmar medial glue, URL grouping —
+        are all preprocessing decisions that happen before any width is measured.
+      </p>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <h2 id="measurement">4. Measurement: Canvas as Ground Truth</h2>
+    <p>
+      After analysis, Pretext measures each segment's width using
+      <code>CanvasRenderingContext2D.measureText()</code>. These widths are
+      cached in a <code>Map&lt;font, Map&lt;segment, metrics&gt;&gt;</code>
+      and reused across texts that share segments.
+    </p>
+    <p>
+      The bars below show the measured width of each segment from the text
+      above. Taller bars = wider segments.
+    </p>
+
+    <div class="demo" id="demo-measurement">
+      <span class="demo-label">Segment widths (px)</span>
+      <div class="width-bars" id="measurement-bars"></div>
+      <div class="stats" id="measurement-stats"></div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <h2 id="linebreak">5. Line Breaking: The Core Algorithm</h2>
+    <p>
+      With cached segment widths, line breaking becomes arithmetic. The engine
+      walks segments left to right, accumulating width. When a segment would
+      overflow, it breaks the line — either at the most recent breakable
+      position (after a space or zero-width break), or inside the word at
+      grapheme boundaries if the word itself is wider than the container.
+    </p>
+    <p>
+      Drag the width slider and watch lines reflow in real time. The red
+      border marks <code>maxWidth</code>. Notice how trailing whitespace
+      "hangs" past the edge without triggering a break — matching CSS behavior.
+    </p>
+
+    <div class="demo" id="demo-linebreak">
+      <span class="demo-label">Live line breaking</span>
+      <textarea id="linebreak-input" rows="2">The quick brown fox jumps over the lazy dog. AGI 春天到了. بدأت الرحلة 🚀</textarea>
+      <div class="slider-row">
+        <label for="linebreak-width">width</label>
+        <input type="range" id="linebreak-width" min="40" max="700" value="320">
+        <span class="val" id="linebreak-width-val">320px</span>
+      </div>
+      <div class="line-render" id="linebreak-render"></div>
+      <div class="stats" id="linebreak-stats"></div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <h2 id="cjk">6. CJK &amp; Kinsoku: Punctuation Attachment</h2>
+    <p>
+      CJK scripts (Chinese, Japanese, Korean) break between every character
+      by default. But punctuation has rules: closing punctuation
+      like <code>、</code> <code>。</code> must not start a line (kinsoku-start),
+      and opening brackets like <code>「</code> must not end a line (kinsoku-end).
+    </p>
+    <p>
+      Pretext handles this during analysis by merging prohibited punctuation
+      into adjacent characters. Watch how the comma stays attached to the
+      preceding character as the width changes.
+    </p>
+
+    <div class="demo" id="demo-cjk">
+      <span class="demo-label">CJK kinsoku rules</span>
+      <textarea id="cjk-input" rows="2">作者はさつき、「下人が雨やみを待っていた」と書いた。</textarea>
+      <div class="slider-row">
+        <label for="cjk-width">width</label>
+        <input type="range" id="cjk-width" min="40" max="500" value="200">
+        <span class="val" id="cjk-width-val">200px</span>
+      </div>
+      <div class="seg-row" id="cjk-segments"></div>
+      <div class="line-render" id="cjk-render"></div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <h2 id="softhyphen">7. Soft Hyphens: Discretionary Breaks</h2>
+    <p>
+      A soft hyphen (<code>&amp;shy;</code>, U+00AD) is invisible until the
+      engine chooses it as a break point. If selected, a visible
+      <code>-</code> appears at the end of the line. The line breaker must
+      decide: can I fit more of this word, or should I break at the soft
+      hyphen and show the dash?
+    </p>
+    <p>
+      Drag the width to see the soft hyphen activate and deactivate. The word
+      "trans&shy;atlantic" has a soft hyphen between "trans" and "atlantic".
+    </p>
+
+    <div class="demo" id="demo-shy">
+      <span class="demo-label">Soft hyphen behavior</span>
+      <textarea id="shy-input" rows="1">The trans­atlantic voyage was remarkably pleasant.</textarea>
+      <div class="slider-row">
+        <label for="shy-width">width</label>
+        <input type="range" id="shy-width" min="40" max="500" value="180">
+        <span class="val" id="shy-width-val">180px</span>
+      </div>
+      <div class="line-render" id="shy-render"></div>
+      <div class="stats" id="shy-stats"></div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <h2 id="shrinkwrap">8. Shrink Wrap: Finding the Tightest Fit</h2>
+    <p>
+      One of Pretext's most useful tricks: finding the narrowest container width
+      that keeps the same line count. This is "multiline shrink wrap" — missing
+      from web CSS but trivial with <code>layout()</code> since it's pure
+      arithmetic you can call in a binary search.
+    </p>
+    <p>
+      Click "Shrink" to watch the binary search run. The text box animates
+      to the tightest width that preserves line count.
+    </p>
+
+    <div class="demo" id="demo-shrink">
+      <span class="demo-label">Shrink wrap binary search</span>
+      <div id="shrink-text-container" style="position:relative; min-height:120px">
+        <div id="shrink-text-box" class="shrink-text-box">
+          Mina cut the release note to three crisp lines, then realized
+          the support caveat still needed one more sentence.
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; margin:12px 0; align-items:center">
+        <button class="btn btn--accent" id="shrink-run">Shrink</button>
+        <button class="btn" id="shrink-reset">Reset</button>
+        <span id="shrink-status" style="font:12px/1 'SF Mono',ui-monospace,monospace; color:var(--muted)"></span>
+      </div>
+      <div id="shrink-log" style="font:11px/1.5 'SF Mono',ui-monospace,monospace; color:var(--muted); max-height:100px; overflow-y:auto"></div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <h2 id="variable">9. Variable Width: Text Around Obstacles</h2>
+    <p>
+      <code>layoutNextLine()</code> lets you lay out one line at a time with
+      a different width for each. This enables text that flows around images,
+      pull quotes, or any arbitrary shape — with no DOM measurement at all.
+    </p>
+    <p>
+      The demo below flows text around a rectangular obstacle. Drag the
+      obstacle to see text reflow live. Lines beside the obstacle are narrower.
+    </p>
+
+    <div class="demo" id="demo-variable">
+      <span class="demo-label">Variable-width layout with obstacle</span>
+      <div id="variable-canvas-wrap" style="position:relative; border:1px solid var(--rule); border-radius:8px; overflow:hidden; background:white; cursor:default">
+        <canvas id="variable-canvas" style="display:block"></canvas>
+        <div id="variable-obstacle" style="position:absolute; width:120px; height:100px; background:rgba(149,95,59,0.12); border:2px solid var(--accent); border-radius:8px; cursor:grab; display:flex; align-items:center; justify-content:center; font:11px/1 'SF Mono',ui-monospace,monospace; color:var(--accent); user-select:none">drag me</div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <h2 id="performance">10. Performance: prepare() vs layout()</h2>
+    <p>
+      The architectural bet of Pretext is that <code>prepare()</code> can be
+      relatively expensive (it runs once), as long as <code>layout()</code>
+      stays extremely cheap (it runs on every resize/reflow). Click "Benchmark"
+      to measure both phases on a batch of texts.
+    </p>
+
+    <div class="demo" id="demo-perf">
+      <span class="demo-label">Benchmark: 200 texts</span>
+      <button class="btn btn--accent" id="perf-run">Run benchmark</button>
+      <div class="perf-bars" id="perf-bars">
+        <div class="perf-bar">
+          <div class="perf-bar-fill" id="perf-bar-prep" style="height:0; background:var(--accent2)"></div>
+          <span class="perf-bar-val" id="perf-val-prep">—</span>
+          <span class="perf-bar-label">prepare() total</span>
+        </div>
+        <div class="perf-bar">
+          <div class="perf-bar-fill" id="perf-bar-lay" style="height:0; background:var(--green)"></div>
+          <span class="perf-bar-val" id="perf-val-lay">—</span>
+          <span class="perf-bar-label">layout() total</span>
+        </div>
+        <div class="perf-bar">
+          <div class="perf-bar-fill" id="perf-bar-layper" style="height:0; background:var(--accent)"></div>
+          <span class="perf-bar-val" id="perf-val-layper">—</span>
+          <span class="perf-bar-label">layout() per text</span>
+        </div>
+      </div>
+      <div class="stats" id="perf-stats"></div>
+    </div>
+
+    <div class="callout">
+      <p>
+        <strong>Why this matters:</strong> In a chat app with 500 visible
+        messages, <code>layout()</code> costs ~0.09ms total for the batch.
+        Traditional DOM measurement of the same batch costs 30–150ms and
+        forces full document reflow. That's the difference between smooth
+        60fps scrolling and visible jank.
+      </p>
+    </div>
+
+    <h2 style="margin-top:56px">Further Reading</h2>
+    <p>
+      Pretext is open source. The
+      <a href="https://github.com/chenglou/pretext" style="color:var(--accent)">repository</a>
+      contains accuracy sweeps, benchmark harnesses, and long-form corpus
+      canaries that keep the engine honest across Chrome, Safari, and Firefox.
+    </p>
+    <p>
+      <a href="/demos/index" style="color:var(--accent)">← Back to demos</a>
+    </p>
+  </main>
+
+  <script type="module" src="./explorer.ts"></script>
+</body>
+</html>
