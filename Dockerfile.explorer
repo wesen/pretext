@@ -1,0 +1,21 @@
+FROM oven/bun:1.2.21-alpine AS build
+
+WORKDIR /app
+
+COPY package.json bun.lock tsconfig.json ./
+COPY src ./src
+COPY pages ./pages
+COPY scripts/build-explorer-site.ts ./scripts/build-explorer-site.ts
+
+RUN bun install --frozen-lockfile
+RUN bun run site:build:explorer
+
+FROM nginx:1.29-alpine
+
+LABEL org.opencontainers.image.title="pretext-explorer"
+LABEL org.opencontainers.image.description="Standalone interactive Pretext explorer blog"
+LABEL org.opencontainers.image.source="https://github.com/wesen/pretext"
+
+COPY --from=build /app/site-explorer/ /usr/share/nginx/html/
+
+EXPOSE 80

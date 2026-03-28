@@ -1,0 +1,10 @@
+.git
+.github
+.cursor
+node_modules
+site
+site-explorer
+ttmp
+accuracy
+benchmarks
+corpora
