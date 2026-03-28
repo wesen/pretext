@@ -16,6 +16,12 @@ const COL_GAP = 40
 const BOTTOM_GAP = 20
 const DROP_CAP_LINES = 3
 const MIN_SLOT_WIDTH = 50
+const NARROW_BREAKPOINT = 760
+const NARROW_GUTTER = 20
+const NARROW_COL_GAP = 20
+const NARROW_BOTTOM_GAP = 16
+const NARROW_ORB_SCALE = 0.58
+const NARROW_ACTIVE_ORBS = 3
 
 type Interval = {
   left: number
@@ -321,18 +327,20 @@ function syncPool(pool: HTMLDivElement[], count: number, className: string): voi
 
 let cachedHeadlineWidth = -1
 let cachedHeadlineHeight = -1
+let cachedHeadlineMaxSize = -1
 let cachedHeadlineFontSize = 24
 let cachedHeadlineLines: PositionedLine[] = []
 
-function fitHeadline(maxWidth: number, maxHeight: number): HeadlineFit {
-  if (maxWidth === cachedHeadlineWidth && maxHeight === cachedHeadlineHeight) {
+function fitHeadline(maxWidth: number, maxHeight: number, maxSize: number = 92): HeadlineFit {
+  if (maxWidth === cachedHeadlineWidth && maxHeight === cachedHeadlineHeight && maxSize === cachedHeadlineMaxSize) {
     return { fontSize: cachedHeadlineFontSize, lines: cachedHeadlineLines }
   }
 
   cachedHeadlineWidth = maxWidth
   cachedHeadlineHeight = maxHeight
+  cachedHeadlineMaxSize = maxSize
   let lo = 20
-  let hi = 92
+  let hi = maxSize
   let best = lo
   let bestLines: PositionedLine[] = []
 
@@ -380,6 +388,7 @@ function layoutColumn(
   lineHeight: number,
   circleObstacles: CircleObstacle[],
   rectObstacles: RectObstacle[],
+  singleSlotOnly: boolean = false,
 ): { lines: PositionedLine[], cursor: LayoutCursor } {
   let cursor: LayoutCursor = startCursor
   let lineTop = regionY
@@ -417,9 +426,18 @@ function layoutColumn(
       continue
     }
 
-    slots.sort((a, b) => a.left - b.left)
-    for (let slotIndex = 0; slotIndex < slots.length; slotIndex++) {
-      const slot = slots[slotIndex]!
+    const orderedSlots = singleSlotOnly
+      ? [slots.reduce((best, slot) => {
+          const bestWidth = best.right - best.left
+          const slotWidth = slot.right - slot.left
+          if (slotWidth > bestWidth) return slot
+          if (slotWidth < bestWidth) return best
+          return slot.left < best.left ? slot : best
+        })]
+      : [...slots].sort((a, b) => a.left - b.left)
+
+    for (let slotIndex = 0; slotIndex < orderedSlots.length; slotIndex++) {
+      const slot = orderedSlots[slotIndex]!
       const slotWidth = slot.right - slot.left
       const line = layoutNextLine(prepared, cursor, slotWidth)
       if (line === null) {
@@ -441,12 +459,13 @@ function layoutColumn(
   return { lines, cursor }
 }
 
-function hitTestOrbs(orbs: Orb[], px: number, py: number): number {
-  for (let index = orbs.length - 1; index >= 0; index--) {
+function hitTestOrbs(orbs: Orb[], px: number, py: number, activeCount: number, radiusScale: number): number {
+  for (let index = activeCount - 1; index >= 0; index--) {
     const orb = orbs[index]!
+    const radius = orb.r * radiusScale
     const dx = px - orb.x
     const dy = py - orb.y
-    if (dx * dx + dy * dy <= orb.r * orb.r) return index
+    if (dx * dx + dy * dy <= radius * radius) return index
   }
   return -1
 }
@@ -465,7 +484,9 @@ function scheduleRender(): void {
 }
 
 stage.addEventListener('pointerdown', event => {
-  if (hitTestOrbs(st.orbs, event.clientX, event.clientY) !== -1) {
+  const activeOrbCount = window.innerWidth < NARROW_BREAKPOINT ? NARROW_ACTIVE_ORBS : st.orbs.length
+  const radiusScale = window.innerWidth < NARROW_BREAKPOINT ? NARROW_ORB_SCALE : 1
+  if (hitTestOrbs(st.orbs, event.clientX, event.clientY, activeOrbCount, radiusScale) !== -1) {
     event.preventDefault()
   }
   st.events.pointerDown = pointerSampleFromEvent(event)
@@ -492,6 +513,12 @@ window.addEventListener('resize', () => scheduleRender())
 function render(now: number): boolean {
   const pageWidth = document.documentElement.clientWidth
   const pageHeight = document.documentElement.clientHeight
+  const isNarrow = pageWidth < NARROW_BREAKPOINT
+  const gutter = isNarrow ? NARROW_GUTTER : GUTTER
+  const colGap = isNarrow ? NARROW_COL_GAP : COL_GAP
+  const bottomGap = isNarrow ? NARROW_BOTTOM_GAP : BOTTOM_GAP
+  const orbRadiusScale = isNarrow ? NARROW_ORB_SCALE : 1
+  const activeOrbCount = isNarrow ? Math.min(NARROW_ACTIVE_ORBS, st.orbs.length) : st.orbs.length
   const orbs = st.orbs
 
   let pointer = st.pointer
@@ -500,7 +527,7 @@ function render(now: number): boolean {
     const down = st.events.pointerDown
     pointer = down
     if (drag === null) {
-      const orbIndex = hitTestOrbs(orbs, down.x, down.y)
+      const orbIndex = hitTestOrbs(orbs, down.x, down.y, activeOrbCount, orbRadiusScale)
       if (orbIndex !== -1) {
         const orb = orbs[orbIndex]!
         drag = {
@@ -547,38 +574,42 @@ function render(now: number): boolean {
   let stillAnimating = false
 
   for (let index = 0; index < orbs.length; index++) {
+    if (index >= activeOrbCount) continue
     const orb = orbs[index]!
+    const radius = orb.r * orbRadiusScale
     if (orb.paused || index === draggedOrbIndex) continue
     stillAnimating = true
     orb.x += orb.vx * dt
     orb.y += orb.vy * dt
 
-    if (orb.x - orb.r < 0) {
-      orb.x = orb.r
+    if (orb.x - radius < 0) {
+      orb.x = radius
       orb.vx = Math.abs(orb.vx)
     }
-    if (orb.x + orb.r > pageWidth) {
-      orb.x = pageWidth - orb.r
+    if (orb.x + radius > pageWidth) {
+      orb.x = pageWidth - radius
       orb.vx = -Math.abs(orb.vx)
     }
-    if (orb.y - orb.r < GUTTER * 0.5) {
-      orb.y = orb.r + GUTTER * 0.5
+    if (orb.y - radius < gutter * 0.5) {
+      orb.y = radius + gutter * 0.5
       orb.vy = Math.abs(orb.vy)
     }
-    if (orb.y + orb.r > pageHeight - BOTTOM_GAP) {
-      orb.y = pageHeight - BOTTOM_GAP - orb.r
+    if (orb.y + radius > pageHeight - bottomGap) {
+      orb.y = pageHeight - bottomGap - radius
       orb.vy = -Math.abs(orb.vy)
     }
   }
 
-  for (let index = 0; index < orbs.length; index++) {
+  for (let index = 0; index < activeOrbCount; index++) {
     const a = orbs[index]!
-    for (let otherIndex = index + 1; otherIndex < orbs.length; otherIndex++) {
+    const aRadius = a.r * orbRadiusScale
+    for (let otherIndex = index + 1; otherIndex < activeOrbCount; otherIndex++) {
       const b = orbs[otherIndex]!
+      const bRadius = b.r * orbRadiusScale
       const dx = b.x - a.x
       const dy = b.y - a.y
       const dist = Math.sqrt(dx * dx + dy * dy)
-      const minDist = a.r + b.r + 20
+      const minDist = aRadius + bRadius + (isNarrow ? 12 : 20)
       if (dist >= minDist || dist <= 0.1) continue
 
       const force = (minDist - dist) * 0.8
@@ -597,25 +628,35 @@ function render(now: number): boolean {
   }
 
   const circleObstacles: CircleObstacle[] = []
-  for (let index = 0; index < orbs.length; index++) {
+  for (let index = 0; index < activeOrbCount; index++) {
     const orb = orbs[index]!
-    circleObstacles.push({ cx: orb.x, cy: orb.y, r: orb.r, hPad: 14, vPad: 4 })
+    circleObstacles.push({
+      cx: orb.x,
+      cy: orb.y,
+      r: orb.r * orbRadiusScale,
+      hPad: isNarrow ? 10 : 14,
+      vPad: isNarrow ? 2 : 4,
+    })
   }
 
-  const headlineWidth = Math.min(pageWidth - GUTTER * 2, 1000)
-  const maxHeadlineHeight = Math.floor(pageHeight * 0.24)
-  const { fontSize: headlineSize, lines: headlineLines } = fitHeadline(headlineWidth, maxHeadlineHeight)
+  const headlineWidth = Math.min(pageWidth - gutter * 2 - (isNarrow ? 12 : 0), 1000)
+  const maxHeadlineHeight = Math.floor(pageHeight * (isNarrow ? 0.2 : 0.24))
+  const { fontSize: headlineSize, lines: headlineLines } = fitHeadline(
+    headlineWidth,
+    maxHeadlineHeight,
+    isNarrow ? 38 : 92,
+  )
   const headlineLineHeight = Math.round(headlineSize * 0.93)
   const headlineFont = `700 ${headlineSize}px ${HEADLINE_FONT_FAMILY}`
   const headlineHeight = headlineLines.length * headlineLineHeight
 
-  const bodyTop = GUTTER + headlineHeight + 20
-  const bodyHeight = pageHeight - bodyTop - BOTTOM_GAP
+  const bodyTop = gutter + headlineHeight + (isNarrow ? 14 : 20)
+  const bodyHeight = pageHeight - bodyTop - bottomGap
   const columnCount = pageWidth > 1000 ? 3 : pageWidth > 640 ? 2 : 1
-  const totalGutter = GUTTER * 2 + COL_GAP * (columnCount - 1)
+  const totalGutter = gutter * 2 + colGap * (columnCount - 1)
   const maxContentWidth = Math.min(pageWidth, 1500)
   const columnWidth = Math.floor((maxContentWidth - totalGutter) / columnCount)
-  const contentLeft = Math.round((pageWidth - (columnCount * columnWidth + (columnCount - 1) * COL_GAP)) / 2)
+  const contentLeft = Math.round((pageWidth - (columnCount * columnWidth + (columnCount - 1) * colGap)) / 2)
   const column0X = contentLeft
   const dropCapRect: RectObstacle = {
     x: column0X - 2,
@@ -626,13 +667,14 @@ function render(now: number): boolean {
 
   const pullquoteRects: PullquoteRect[] = []
   for (let index = 0; index < pullquoteSpecs.length; index++) {
+    if (isNarrow) break
     const { prepared, placement } = pullquoteSpecs[index]!
     if (placement.colIdx >= columnCount) continue
 
     const pullquoteWidth = Math.round(columnWidth * placement.wFrac)
     const pullquoteLines = layoutWithLines(prepared, pullquoteWidth - 20, PQ_LINE_HEIGHT).lines
     const pullquoteHeight = pullquoteLines.length * PQ_LINE_HEIGHT + 16
-    const columnX = contentLeft + placement.colIdx * (columnWidth + COL_GAP)
+    const columnX = contentLeft + placement.colIdx * (columnWidth + colGap)
     const pullquoteX = placement.side === 'right' ? columnX + columnWidth - pullquoteWidth : columnX
     const pullquoteY = Math.round(bodyTop + bodyHeight * placement.yFrac)
     const positionedLines = pullquoteLines.map((line, lineIndex) => ({
@@ -655,7 +697,7 @@ function render(now: number): boolean {
   const allBodyLines: PositionedLine[] = []
   let cursor: LayoutCursor = { segmentIndex: 0, graphemeIndex: 1 }
   for (let columnIndex = 0; columnIndex < columnCount; columnIndex++) {
-    const columnX = contentLeft + columnIndex * (columnWidth + COL_GAP)
+    const columnX = contentLeft + columnIndex * (columnWidth + colGap)
     const rects: RectObstacle[] = []
     if (columnIndex === 0) rects.push(dropCapRect)
     for (let rectIndex = 0; rectIndex < pullquoteRects.length; rectIndex++) {
@@ -674,6 +716,7 @@ function render(now: number): boolean {
       BODY_LINE_HEIGHT,
       circleObstacles,
       rects,
+      isNarrow,
     )
     allBodyLines.push(...result.lines)
     cursor = result.cursor
@@ -682,7 +725,7 @@ function render(now: number): boolean {
   let totalPullquoteLines = 0
   for (let index = 0; index < pullquoteRects.length; index++) totalPullquoteLines += pullquoteRects[index]!.lines.length
 
-  const hoveredOrbIndex = hitTestOrbs(orbs, pointer.x, pointer.y)
+  const hoveredOrbIndex = hitTestOrbs(orbs, pointer.x, pointer.y, activeOrbCount, orbRadiusScale)
   const cursorStyle = drag !== null ? 'grabbing' : hoveredOrbIndex !== -1 ? 'grab' : ''
 
   st.pointer = pointer
@@ -697,8 +740,8 @@ function render(now: number): boolean {
     const element = domCache.headlineLines[index]!
     const line = headlineLines[index]!
     element.textContent = line.text
-    element.style.left = `${GUTTER}px`
-    element.style.top = `${GUTTER + line.y}px`
+    element.style.left = `${gutter}px`
+    element.style.top = `${gutter + line.y}px`
     element.style.font = headlineFont
     element.style.lineHeight = `${headlineLineHeight}px`
   }
@@ -744,10 +787,16 @@ function render(now: number): boolean {
   for (let index = 0; index < orbs.length; index++) {
     const orb = orbs[index]!
     const element = domCache.orbs[index]!
-    element.style.left = `${orb.x - orb.r}px`
-    element.style.top = `${orb.y - orb.r}px`
-    element.style.width = `${orb.r * 2}px`
-    element.style.height = `${orb.r * 2}px`
+    if (index >= activeOrbCount) {
+      element.style.display = 'none'
+      continue
+    }
+    const radius = orb.r * orbRadiusScale
+    element.style.display = ''
+    element.style.left = `${orb.x - radius}px`
+    element.style.top = `${orb.y - radius}px`
+    element.style.width = `${radius * 2}px`
+    element.style.height = `${radius * 2}px`
     element.style.opacity = orb.paused ? '0.45' : '1'
   }
 
